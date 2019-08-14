@@ -1,7 +1,7 @@
 GIF
 ---
 Basic utility to convert images to gifs
-
+![](out.gif)
 Usage of gif
 ------------
 ```
