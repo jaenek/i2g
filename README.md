@@ -1,7 +1,9 @@
-GIF
----
-Basic utility to convert images to gifs
 ![](out.gif)
+
+i2g
+---
+Basic utility to convert images to gifs.
+
 Usage of gif
 ------------
 ```
