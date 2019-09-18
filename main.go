@@ -25,23 +25,48 @@ func main() {
 	flag.IntVar(&loopcount, "lc", 0, "Controls the number of times an animation will be restarted during display. Values: 0 - loops forever, -1 - shows each frame once, n - shows each frame n+1 times.")
 
 	flag.Parse()
-	run(path, outputname, delay, loopcount)
+	i2g(path, outputname, delay, loopcount)
 }
 
-type GifFrame struct {
-	Index   int
-	Imgpath string
-	Frame   *image.Paletted
+func decode(img *os.File) (*image.Paletted, error) {
+	ext := filepath.Ext(img.Name())
+
+	var i image.Image
+	var err error
+	switch ext[1:] {
+	case "png":
+		i, err = png.Decode(img)
+	case "jpg":
+		fallthrough
+	case "jpeg":
+		i, err = jpeg.Decode(img)
+	}
+	if err != nil {
+		return &image.Paletted{}, err
+	}
+
+	b := new(bytes.Buffer)
+	err = gif.Encode(b, i, nil)
+	if err != nil {
+		return &image.Paletted{}, err
+	}
+
+	frame, err := gif.Decode(b)
+	if err != nil {
+		return &image.Paletted{}, err
+	}
+
+	return frame.(*image.Paletted), nil
 }
 
-func run(path string, outputname string, delay int, loopcount int) {
+func i2g(path string, outputname string, delay int, loopcount int) {
 	files, err := ioutil.ReadDir(path)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var GifFrames []GifFrame
-	for i, fileInfo := range files {
+	var imgFrames []*os.File
+	for _, fileInfo := range files {
 		imgpath := path + fileInfo.Name()
 		ext := filepath.Ext(imgpath)
 		switch ext[1:] {
@@ -50,33 +75,38 @@ func run(path string, outputname string, delay int, loopcount int) {
 		case "jpg":
 			fallthrough
 		case "jpeg":
-			log.Print(imgpath)
-			GifFrames = append(GifFrames, GifFrame{Index: i, Imgpath: imgpath})
+			img, err := os.Open(imgpath)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			log.Println(fileInfo.Name() + ": Opened")
+			imgFrames = append(imgFrames, img)
 		default:
-			log.Println(imgpath + ": Warning: Cannot decode " + ext + " format.")
+			log.Println(imgpath + ": Not Opened, Warning: Cannot decode " + ext + " format.")
 		}
 	}
 
-	input := make(chan GifFrame, len(GifFrames))
-	output := make(chan GifFrame, len(GifFrames))
-
-	go worker(input, output)
-	go worker(input, output)
-	go worker(input, output)
-	go worker(input, output)
-
-	for _, img := range GifFrames {
-		input <- img
+	frames := make([]*image.Paletted, len(imgFrames))
+	sem := make(chan error, len(files))
+	for i, img := range imgFrames {
+		go func(i int, img *os.File) {
+			frames[i], err = decode(img)
+			sem <- err
+		}(i, img)
 	}
 
-	for range GifFrames {
-		img := <-output
-		GifFrames[img.Index].Frame = img.Frame
+	for _, img := range imgFrames {
+		if <-sem != nil {
+			log.Fatal(err)
+		} else {
+			log.Println(img.Name() + ": Decoded")
+		}
 	}
 
 	out := gif.GIF{LoopCount: loopcount}
-	for _, img := range GifFrames {
-		out.Image = append(out.Image, img.Frame)
+	for _, frame := range frames {
+		out.Image = append(out.Image, frame)
 		out.Delay = append(out.Delay, delay)
 	}
 
@@ -90,43 +120,4 @@ func run(path string, outputname string, delay int, loopcount int) {
 		log.Println(err)
 	}
 	outfile.Close()
-}
-
-func worker(input <-chan GifFrame, output chan<- GifFrame) {
-	for img := range input {
-		var i image.Image
-		ext := filepath.Ext(img.Imgpath)
-
-		file, err := os.Open(img.Imgpath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer file.Close()
-
-		switch ext[1:] {
-		case "png":
-			i, err = png.Decode(file)
-		case "jpg":
-			fallthrough
-		case "jpeg":
-			i, err = jpeg.Decode(file)
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		b := new(bytes.Buffer)
-		err = gif.Encode(b, i, nil)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		frame, err := gif.Decode(b)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		img.Frame = frame.(*image.Paletted)
-		output <- img
-	}
 }
