@@ -4,7 +4,7 @@ i2g
 ---
 Basic utility to convert images to gifs.
 
-Usage of gif
+Usage of i2g
 ------------
 ```
 -d int
